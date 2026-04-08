@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: houyu-common-log-test
+  redis:
+    uri: redis://localhost:63790
+    timeout: 3000
+    database: 0
+
+server:
+  port: 8080

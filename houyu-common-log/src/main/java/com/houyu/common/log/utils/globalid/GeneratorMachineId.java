@@ -1,12 +1,11 @@
 package com.houyu.common.log.utils.globalid;
 
 import com.alibaba.fastjson2.JSON;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.redisson.api.RBucket;
+import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.redisson.api.lock.RedissonLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -17,17 +16,15 @@ import jakarta.annotation.PreDestroy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
-public class MachineIdManager {
+public class GeneratorMachineId {
     private static final String LOCK_PREFIX = "machine_id_%s_lock";
     private static final String MACHINE_ID_PREFIX = "machine_id_%s_%s";
     private static final String MACHINE_ID_BACKUP_PREFIX = "machine_id_bak_%s_%s";
     private static final int LOCK_INITIAL_TIME = 30;
-    private static final int LOCK_RENEWAL_TIME = 60;
     private static final int MAX_MACHINE_ID = 9999;
     private static final int MAX_POD_COUNT = 50;
     private static final int BACKUP_START = 9050;
@@ -41,23 +38,15 @@ public class MachineIdManager {
     @Autowired
     private RedissonClient redissonClient;
 
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    private String machineId;
-    private String machineName;
-    private String machineIp;
-    private LocalDateTime registerTime;
+    private MachineInfoDto.RedisMachineInfoDto redisMachineInfoDto;
     private boolean isBackup = false;
 
     @PostConstruct
     public void init() {
         try {
-            machineName = getMachineName();
-            machineIp = getMachineIp();
-            registerTime = LocalDateTime.now();
-            machineId = allocateMachineId();
-            log.info("Machine ID allocated successfully: machineId={}, machineName={}, machineIp={}", machineId, machineName, machineIp);
+            redisMachineInfoDto = allocateMachineId();
+            log.info("Machine ID allocated successfully: machineId={}, machineName={}, machineIp={}", 
+                getMachineId(), redisMachineInfoDto.getRedisValue().getMachineName(), redisMachineInfoDto.getRedisValue().getMachineIp());
         } catch (Exception e) {
             log.error("Failed to initialize machine ID manager", e);
             throw new RuntimeException("Failed to initialize machine ID manager", e);
@@ -66,17 +55,17 @@ public class MachineIdManager {
 
     @PreDestroy
     public void destroy() {
-        if (machineId != null) {
+        if (redisMachineInfoDto != null) {
             releaseMachineId();
         }
     }
 
     private String getMachineName() {
         String hostname = System.getenv("HOSTNAME");
-        if (hostname == null || hostname.isEmpty()) {
+        if (StringUtils.isEmpty(hostname)) {
             hostname = System.getenv("COMPUTERNAME");
         }
-        if (hostname == null || hostname.isEmpty()) {
+        if (StringUtils.isEmpty(hostname)) {
             hostname = "unknown-" + System.currentTimeMillis();
         }
         return hostname;
@@ -92,12 +81,9 @@ public class MachineIdManager {
         }
     }
 
-    private String allocateMachineId() {
+    private MachineInfoDto.RedisMachineInfoDto allocateMachineId() {
         String lockKey = String.format(LOCK_PREFIX, applicationName);
-        RedissonLock lock = (RedissonLock) redissonClient.getLock(lockKey);
-
-        org.redisson.api.RLock lock1 = redissonClient.getLock(lockKey);
-        lock1.tryLock(0, LOCK_INITIAL_TIME, TimeUnit.SECONDS);
+        RLock lock = redissonClient.getLock(lockKey);
 
         try {
             boolean locked = lock.tryLock(0, LOCK_INITIAL_TIME, TimeUnit.SECONDS);
@@ -105,20 +91,17 @@ public class MachineIdManager {
                 throw new RuntimeException("Failed to acquire lock for machine ID allocation");
             }
 
-            // 启动锁续期线程
-            startLockRenewal(lock);
-
             // 尝试在主段分配机器码
             String machineId = allocateMachineIdInRange(getMainRangeStart(), getMainRangeEnd());
             if (machineId != null) {
-                return machineId;
+                return createRedisMachineInfoDto(machineId, false);
             }
 
             // 主段已满，使用备用段
             isBackup = true;
             machineId = allocateMachineIdInRange(BACKUP_START, MAX_MACHINE_ID);
             if (machineId != null) {
-                return machineId;
+                return createRedisMachineInfoDto(machineId, true);
             }
 
             throw new RuntimeException("Failed to allocate machine ID, all ranges are full");
@@ -132,21 +115,28 @@ public class MachineIdManager {
         }
     }
 
-    private void startLockRenewal(RedissonLock lock) {
-        Thread renewalThread = new Thread(() -> {
-            while (lock.isHeldByCurrentThread()) {
-                try {
-                    Thread.sleep(LOCK_RENEWAL_TIME / 2 * 1000);
-                    lock.renewExpiration();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        });
-        renewalThread.setDaemon(true);
-        renewalThread.setName("machine-id-lock-renewal");
-        renewalThread.start();
+    private MachineInfoDto.RedisMachineInfoDto createRedisMachineInfoDto(String machineId, boolean isBackup) {
+        String key = isBackup ? 
+            String.format(MACHINE_ID_BACKUP_PREFIX, applicationName, machineId) : 
+            String.format(MACHINE_ID_PREFIX, applicationName, machineId);
+
+        MachineInfoDto machineInfoDto = MachineInfoDto.builder()
+            .machineName(getMachineName())
+            .machineIp(getMachineIp())
+            .registerTime(LocalDateTime.now())
+            .destroyTime(null)
+            .build();
+
+        MachineInfoDto.RedisMachineInfoDto redisMachineInfoDto = MachineInfoDto.RedisMachineInfoDto.builder()
+            .redisKey(key)
+            .redisValue(machineInfoDto)
+            .build();
+
+        // 注册到Redis，永久有效
+        RBucket<String> bucket = redissonClient.getBucket(key);
+        bucket.set(JSON.toJSONString(machineInfoDto));
+
+        return redisMachineInfoDto;
     }
 
     private int getMainRangeStart() {
@@ -155,11 +145,17 @@ public class MachineIdManager {
     }
 
     private int getMainRangeEnd() {
-        int base = (serverPort % 9000) * 10;
-        return base + 49;
+        int start = getMainRangeStart();
+        return start + MAX_POD_COUNT - 1;
     }
 
     private String allocateMachineIdInRange(int start, int end) {
+        // 生成key前缀
+        String keyPrefix = isBackup ? 
+            String.format("machine_id_bak_%s_", applicationName) : 
+            String.format("machine_id_%s_", applicationName);
+
+        // 这里应该使用Redis的keys命令或scan命令查询，但为了简化，我们直接遍历
         for (int i = start; i <= end; i++) {
             String candidateId = String.format("%04d", i);
             String key = isBackup ? 
@@ -168,43 +164,41 @@ public class MachineIdManager {
 
             RBucket<String> bucket = redissonClient.getBucket(key);
             if (!bucket.isExists()) {
-                // 注册机器码
-                MachineInfo machineInfo = new MachineInfo(machineName, machineIp, registerTime, null);
-                try {
-                    String json = objectMapper.writeValueAsString(machineInfo);
-                    bucket.set(json, 24, TimeUnit.HOURS);
-                    return candidateId;
-                } catch (JsonProcessingException e) {
-                    log.error("Failed to serialize machine info", e);
-                    throw new RuntimeException("Failed to serialize machine info", e);
-                }
+                return candidateId;
             }
         }
         return null;
     }
 
     private void releaseMachineId() {
-        String key = isBackup ? 
-            String.format(MACHINE_ID_BACKUP_PREFIX, applicationName, machineId) : 
-            String.format(MACHINE_ID_PREFIX, applicationName, machineId);
-
+        String key = redisMachineInfoDto.getRedisKey();
         RBucket<String> bucket = redissonClient.getBucket(key);
+        
         try {
             String json = bucket.get();
             if (json != null) {
-                MachineInfo machineInfo = objectMapper.readValue(json, MachineInfo.class);
-                machineInfo.setDestroyTime(LocalDateTime.now());
-                String updatedJson = objectMapper.writeValueAsString(machineInfo);
-                bucket.set(updatedJson, 24, TimeUnit.HOURS);
+                MachineInfoDto machineInfoDto = JSON.parseObject(json, MachineInfoDto.class);
+                machineInfoDto.setDestroyTime(LocalDateTime.now());
+                bucket.set(JSON.toJSONString(machineInfoDto), 24, TimeUnit.HOURS);
             }
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
             log.error("Failed to update machine info", e);
         }
 
-        log.info("Machine ID released: machineId={}, machineName={}, machineIp={}", machineId, machineName, machineIp);
+        log.info("Machine ID released: machineId={}, machineName={}, machineIp={}", 
+            getMachineId(), redisMachineInfoDto.getRedisValue().getMachineName(), redisMachineInfoDto.getRedisValue().getMachineIp());
     }
 
     public String getMachineId() {
-        return machineId;
+        if (redisMachineInfoDto == null) {
+            return null;
+        }
+        // 从redisKey中提取machineId
+        String key = redisMachineInfoDto.getRedisKey();
+        return key.substring(key.lastIndexOf("_") + 1);
+    }
+
+    public MachineInfoDto.RedisMachineInfoDto getRedisMachineInfoDto() {
+        return redisMachineInfoDto;
     }
 }
