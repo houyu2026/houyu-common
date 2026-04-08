@@ -1,45 +1,53 @@
 # Maven
-/target/
-*.jar
-*.war
-*.ear
-*.zip
-*.tar.gz
-*.rar
+**/target/
+**/*.jar
+**/*.war
+**/*.ear
+**/*.zip
+**/*.tar.gz
+**/*.rar
 
 # IDE
-.idea/
-*.iml
-*.ipr
-*.iws
-.project
-.classpath
-.settings/
-.vscode/
+**/.idea/
+**/*.iml
+**/*.ipr
+**/*.iws
+**/.project
+**/.classpath
+**/.settings/
+**/.vscode/
 
 # OS
-.DS_Store
-Thumbs.db
+**/.DS_Store
+**/Thumbs.db
 
 # Logs
-logs/
-*.log
+**/logs/
+**/*.log
 
 # Temporary files
-*.tmp
-*.temp
+**/*.tmp
+**/*.temp
 
 # Environment
-.env
-.env.local
-.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Build tools
-.flattened-pom.xml
+**/.flattened-pom.xml
 
 # Test
-/test-output/
-/coverage/
+**/test-output/
+**/coverage/
 
 # Maven wrapper
-.mvn/
+**/.mvn/
+
+# Hidden files and directories (except .git)
+**/.*
+!**/.git/
+!**/.gitignore
+
+# Promt files
+**/promt.md
