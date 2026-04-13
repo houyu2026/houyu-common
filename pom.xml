@@ -30,15 +30,25 @@
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>4.0.5</spring-boot.version>
         <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
-        <jetcache.version>2.7.8</jetcache.version>
+        <jetcache.version>2.7.9-SNAPSHOT</jetcache.version>
         <lombok.version>1.18.44</lombok.version>
+        <commons-lang3.version>3.20.0</commons-lang3.version>
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- https://spring.io/projects/spring-cloud-alibaba.    Vulnerabilities from dependencies: CVE-2025-68161-->
             <dependency>
                 <groupId>com.alibaba.cloud</groupId>
@@ -79,12 +89,25 @@
             <groupId>com.alicp.jetcache</groupId>
             <artifactId>jetcache-starter-redisson</artifactId>
         </dependency>
+        <!-- Redisson 3.18.0的 Kryo5Codec 依赖 com.esotericsoftware.kryo5 ，但kryo5在JetCache BOM中只是 <dependencyManagement> 声明     https://github.com/EsotericSoftware/kryo   Vulnerabilities from dependencies: CVE-2025-48924 -->
+        <dependency>
+            <groupId>com.esotericsoftware.kryo</groupId>
+            <artifactId>kryo5</artifactId>
+        </dependency>
 
         <!-- https://projectlombok.org -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>${lombok.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- https://commons.apache.org/proper/commons-lang/ -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons-lang3.version}</version>
             <scope>compile</scope>
         </dependency>
 

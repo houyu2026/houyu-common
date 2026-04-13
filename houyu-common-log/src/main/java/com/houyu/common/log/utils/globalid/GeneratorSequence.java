@@ -32,10 +32,4 @@ public class GeneratorSequence {
         return currentSequence;
     }
 
-    public boolean isSequenceExhausted(String currentTimestamp) {
-        if (!currentTimestamp.equals(lastTimestamp)) {
-            return false;
-        }
-        return sequence.get() >= MAX_SEQUENCE;
-    }
 }

@@ -1,10 +1,35 @@
 spring:
   application:
     name: houyu-common-log-test
-  redis:
-    uri: redis://localhost:63790
-    timeout: 3000
-    database: 0
+  data:
+    redis:
+      uri: redis://localhost:63790/0
+  cloud:
+    nacos:
+      config:
+        enabled: false
+      discovery:
+        enabled: false
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.nacos.NacosConfigSpringCloudAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosServiceAutoConfiguration
+
+jetcache:
+  statIntervalMinutes: 15
+  areaInCacheName: false
+  local:
+    default:
+      type: linkedhashmap
+      keyConvertor: jackson
+  remote:
+    default:
+      type: redisson
+      keyConvertor: jackson
+      valueEncoder: java
+      valueDecoder: java
+      uri: redis://localhost:63790/0
 
 server:
-  port: 8080
+  port: 9000

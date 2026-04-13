@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter;
 @Component
 public class GeneratorTimestamp {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyMMddHHmm");
+    private static final int MAX_ADJUSTMENTCOUNT = 39;
 
     /**
      * 生成10位时间戳，格式：yyMMddHHmm
@@ -24,6 +25,10 @@ public class GeneratorTimestamp {
      * @return 调整后的时间戳
      */
     public String adjustTimestamp(String originalTimestamp, int adjustmentCount) {
+        if (adjustmentCount > MAX_ADJUSTMENTCOUNT) {
+            return null;
+        }
+
         // 基础时间戳
         String baseTimestamp = originalTimestamp.substring(0, 8);
         
