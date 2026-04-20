@@ -6,7 +6,6 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <!-- https://spring.io/projects/spring-boot/.    Vulnerabilities from dependencies: CVE-2026-27446,CVE-2025-66168,CVE-2022-46337-->
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>4.0.5</version>
@@ -21,6 +20,10 @@
     <name>houyu-common</name>
     <description>厚玉公共模块</description>
 
+    <modules>
+        <module>houyu-common-log</module>
+    </modules>
+
     <properties>
         <revision>20260401-SNAPSHOT</revision>
         <maven.compiler.source>${java.version}</maven.compiler.source>
@@ -28,13 +31,15 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
         <jetcache-starter-redis.version>2.7.8</jetcache-starter-redis.version>
+        <redisson-spring-boot-starter.version>4.3.1</redisson-spring-boot-starter.version>
+        <lombok.version>1.18.44</lombok.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- https://spring.io/projects/spring-cloud-alibaba.    Vulnerabilities from dependencies: CVE-2025-68161-->
             <dependency>
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
@@ -42,11 +47,40 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>com.houyu.common</groupId>
+                <artifactId>houyu-common-log</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct</artifactId>
+                <version>${mapstruct.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct-processor</artifactId>
+                <version>${mapstruct.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.redisson</groupId>
+                <artifactId>redisson-spring-boot-starter</artifactId>
+                <version>${redisson-spring-boot-starter.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alicp.jetcache</groupId>
+                <artifactId>jetcache-starter-redis</artifactId>
+                <version>${jetcache-starter-redis.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
-        <!-- nacos注册中心和配置中心 -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
@@ -55,14 +89,22 @@
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
-
-        <!-- https://github.com/alibaba/jetcache -->
         <dependency>
             <groupId>com.alicp.jetcache</groupId>
             <artifactId>jetcache-starter-redis</artifactId>
-            <version>${jetcache-starter-redis.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -72,7 +114,6 @@
 
     <build>
         <plugins>
-            <!-- 生成精简的pom文件. https://www.mojohaus.org/flatten-maven-plugin/.  Vulnerabilities from dependencies: CVE-2026-24400-->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
@@ -97,12 +138,6 @@
                     </execution>
                 </executions>
             </plugin>
-
-            <!-- parent定义为spring-boot-starter-parent，关于是否需要显式添加 spring-boot-maven-plugin
-             spring-boot-starter-parent 在 pluginManagement 中预配置了 spring-boot-maven-plugin，但它不会自动激活该插件。
-             如果你的项目只是一个普通 library（被其他模块依赖），不需要打成可执行 Fat Jar，则不需要添加该插件。如果你的项目是可运行的应用模块（如 yudao-server），需要打包成可执行 jar，则必须在 pom.xml 中显式声明。-->
-
-            <!-- https://www.jacoco.org/jacoco/trunk/doc/maven.html -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -134,7 +169,7 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.00</minimum>
+                                            <minimum>0.50</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
