@@ -131,30 +131,52 @@ class GlobalIdAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("测试自动配置创建MachineIdRegistrar")
-    void testMachineIdRegistrarBean() {
+    @DisplayName("测试自动配置创建GeneratorMachineId")
+    void testGeneratorMachineIdBean() {
         GlobalIdProperties properties = new GlobalIdProperties();
-        
-        MachineIdRegistrar registrar = autoConfiguration.machineIdRegistrar(
+
+        GeneratorMachineId generatorMachineId = autoConfiguration.generatorMachineId(
                 redissonClient, properties, objectMapper
         );
 
-        assertNotNull(registrar);
-        assertEquals(-1, registrar.getMachineId());
-        assertFalse(registrar.isBackup());
+        assertNotNull(generatorMachineId);
+        assertEquals(-1, generatorMachineId.getMachineId());
+        assertFalse(generatorMachineId.isBackup());
     }
 
     @Test
-    @DisplayName("测试自动配置创建GlobalIdGenerator")
-    void testGlobalIdGeneratorBean() {
+    @DisplayName("测试自动配置创建GeneratorSequence")
+    void testGeneratorSequenceBean() {
+        GeneratorSequence generatorSequence = autoConfiguration.generatorSequence();
+
+        assertNotNull(generatorSequence);
+        assertEquals(0, generatorSequence.getCurrentSequence());
+    }
+
+    @Test
+    @DisplayName("测试自动配置创建GeneratorTimestamp")
+    void testGeneratorTimestampBean() {
+        GeneratorTimestamp generatorTimestamp = autoConfiguration.generatorTimestamp();
+
+        assertNotNull(generatorTimestamp);
+        assertEquals(0, generatorTimestamp.getTimeOffset().get());
+    }
+
+    @Test
+    @DisplayName("测试自动配置创建GeneratorGlobalId")
+    void testGeneratorGlobalIdBean() {
         GlobalIdProperties properties = new GlobalIdProperties();
-        
-        MachineIdRegistrar registrar = autoConfiguration.machineIdRegistrar(
+
+        GeneratorMachineId generatorMachineId = autoConfiguration.generatorMachineId(
                 redissonClient, properties, objectMapper
         );
-        
-        GlobalIdGenerator generator = autoConfiguration.globalIdGenerator(registrar);
+        GeneratorSequence generatorSequence = autoConfiguration.generatorSequence();
+        GeneratorTimestamp generatorTimestamp = autoConfiguration.generatorTimestamp();
 
-        assertNotNull(generator);
+        GeneratorGlobalId generatorGlobalId = autoConfiguration.generatorGlobalId(
+                generatorMachineId, generatorSequence, generatorTimestamp
+        );
+
+        assertNotNull(generatorGlobalId);
     }
 }

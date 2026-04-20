@@ -23,8 +23,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("机器码注册器测试")
-class MachineIdRegistrarTest {
+@DisplayName("机器码生成器测试")
+class GeneratorMachineIdTest {
 
     @Mock
     private RedissonClient redissonClient;
@@ -36,7 +36,7 @@ class MachineIdRegistrarTest {
     private RBucket<Object> bucket;
 
     private GlobalIdProperties properties;
-    private MachineIdRegistrar registrar;
+    private GeneratorMachineId generatorMachineId;
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -44,25 +44,25 @@ class MachineIdRegistrarTest {
         properties = new GlobalIdProperties();
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
-        registrar = new MachineIdRegistrar(redissonClient, properties, objectMapper);
+        generatorMachineId = new GeneratorMachineId(redissonClient, properties, objectMapper);
 
-        ReflectionTestUtils.setField(registrar, "serviceName", "test-service");
-        ReflectionTestUtils.setField(registrar, "serverPort", 9000);
+        ReflectionTestUtils.setField(generatorMachineId, "serviceName", "test-service");
+        ReflectionTestUtils.setField(generatorMachineId, "serverPort", 9000);
     }
 
     @Test
     @DisplayName("测试初始状态")
     void testInitialState() {
-        assertEquals(-1, registrar.getMachineId());
-        assertFalse(registrar.isBackup());
+        assertEquals(-1, generatorMachineId.getMachineId());
+        assertFalse(generatorMachineId.isBackup());
     }
 
     @Test
     @DisplayName("测试Redis键生成规则")
     void testRedisKeyGeneration() {
-        String mainKey = properties.getMachineIdKey("test-service", 1234, false);
-        String backupKey = properties.getMachineIdKey("test-service", 9500, true);
-        String lockKey = properties.getLockKey("test-service");
+        String mainKey = GeneratorMachineId.getMachineIdKey("test-service", 1234, false);
+        String backupKey = GeneratorMachineId.getMachineIdKey("test-service", 9500, true);
+        String lockKey = GeneratorMachineId.getLockKey("test-service");
 
         assertEquals("machine_id_test-service_1234", mainKey);
         assertEquals("machine_id_bak_test-service_9500", backupKey);
@@ -72,7 +72,8 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试机器码信息序列化")
     void testMachineIdInfoSerialization() throws Exception {
-        MachineIdInfo info = MachineIdInfo.builder()
+        RedisMachineInfoDto.MachineInfoDto info = RedisMachineInfoDto.MachineInfoDto.builder()
+                .machineId("0001")
                 .machineName("test-host")
                 .machineIp("192.168.1.100")
                 .registerTime(LocalDateTime.of(2026, 4, 20, 14, 30, 0, 123000000))
@@ -80,8 +81,9 @@ class MachineIdRegistrarTest {
                 .build();
 
         String json = objectMapper.writeValueAsString(info);
-        MachineIdInfo parsed = objectMapper.readValue(json, MachineIdInfo.class);
+        RedisMachineInfoDto.MachineInfoDto parsed = objectMapper.readValue(json, RedisMachineInfoDto.MachineInfoDto.class);
 
+        assertEquals(info.getMachineId(), parsed.getMachineId());
         assertEquals(info.getMachineName(), parsed.getMachineName());
         assertEquals(info.getMachineIp(), parsed.getMachineIp());
         assertEquals(info.getRegisterTime().getYear(), parsed.getRegisterTime().getYear());
@@ -124,7 +126,7 @@ class MachineIdRegistrarTest {
         when(lock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(false);
 
         IllegalStateException exception = assertThrows(IllegalStateException.class, () -> {
-            registrar.initialize();
+            generatorMachineId.initialize();
         });
 
         assertNotNull(exception);
@@ -138,29 +140,29 @@ class MachineIdRegistrarTest {
                 .thenThrow(new InterruptedException("Test interrupt"));
 
         assertThrows(IllegalStateException.class, () -> {
-            registrar.initialize();
+            generatorMachineId.initialize();
         });
     }
 
     @Test
     @DisplayName("测试重复初始化不执行重复注册")
     void testInitialize_AlreadyRegistered() throws Exception {
-        ReflectionTestUtils.setField(registrar, "registered", true);
-        ReflectionTestUtils.setField(registrar, "machineId", 1234);
+        ReflectionTestUtils.setField(generatorMachineId, "registered", true);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 1234);
 
-        registrar.initialize();
+        generatorMachineId.initialize();
 
         verify(redissonClient, never()).getLock(anyString());
-        assertEquals(1234, registrar.getMachineId());
+        assertEquals(1234, generatorMachineId.getMachineId());
     }
 
     @Test
     @DisplayName("测试未注册时destroy不执行任何操作")
     void testDestroy_NotRegistered() {
-        ReflectionTestUtils.setField(registrar, "registered", false);
-        ReflectionTestUtils.setField(registrar, "machineId", -1);
+        ReflectionTestUtils.setField(generatorMachineId, "registered", false);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", -1);
 
-        registrar.destroy();
+        generatorMachineId.destroy();
 
         verify(redissonClient, never()).getBucket(anyString());
     }
@@ -168,10 +170,10 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试已注册但machineId为-1时destroy不执行")
     void testDestroy_RegisteredButNoMachineId() {
-        ReflectionTestUtils.setField(registrar, "registered", true);
-        ReflectionTestUtils.setField(registrar, "machineId", -1);
+        ReflectionTestUtils.setField(generatorMachineId, "registered", true);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", -1);
 
-        registrar.destroy();
+        generatorMachineId.destroy();
 
         verify(redissonClient, never()).getBucket(anyString());
     }
@@ -179,15 +181,15 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试已注册但redis无数据时destroy不执行更新")
     void testDestroy_NoDataInRedis() {
-        ReflectionTestUtils.setField(registrar, "registered", true);
-        ReflectionTestUtils.setField(registrar, "machineId", 1234);
-        ReflectionTestUtils.setField(registrar, "isBackup", false);
-        ReflectionTestUtils.setField(registrar, "serviceName", "test-service");
+        ReflectionTestUtils.setField(generatorMachineId, "registered", true);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 1234);
+        ReflectionTestUtils.setField(generatorMachineId, "isBackup", false);
+        ReflectionTestUtils.setField(generatorMachineId, "serviceName", "test-service");
 
         when(redissonClient.getBucket(anyString())).thenReturn(bucket);
         when(bucket.get()).thenReturn(null);
 
-        registrar.destroy();
+        generatorMachineId.destroy();
 
         verify(bucket, never()).set(any());
     }
@@ -195,12 +197,13 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试使用备用段时destroy正常执行")
     void testDestroy_WithBackupMachineId() throws Exception {
-        ReflectionTestUtils.setField(registrar, "registered", true);
-        ReflectionTestUtils.setField(registrar, "machineId", 9500);
-        ReflectionTestUtils.setField(registrar, "isBackup", true);
-        ReflectionTestUtils.setField(registrar, "serviceName", "test-service");
+        ReflectionTestUtils.setField(generatorMachineId, "registered", true);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 9500);
+        ReflectionTestUtils.setField(generatorMachineId, "isBackup", true);
+        ReflectionTestUtils.setField(generatorMachineId, "serviceName", "test-service");
 
-        MachineIdInfo existingInfo = MachineIdInfo.builder()
+        RedisMachineInfoDto.MachineInfoDto existingInfo = RedisMachineInfoDto.MachineInfoDto.builder()
+                .machineId("9500")
                 .machineName("test-host")
                 .machineIp("192.168.1.100")
                 .registerTime(LocalDateTime.now())
@@ -210,7 +213,7 @@ class MachineIdRegistrarTest {
         when(redissonClient.getBucket(anyString())).thenReturn(bucket);
         when(bucket.get()).thenReturn(objectMapper.writeValueAsString(existingInfo));
 
-        registrar.destroy();
+        generatorMachineId.destroy();
 
         verify(bucket, times(1)).set(anyString());
     }
@@ -218,23 +221,24 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试destroy时JSON解析失败的异常处理")
     void testDestroy_JsonParseException() {
-        ReflectionTestUtils.setField(registrar, "registered", true);
-        ReflectionTestUtils.setField(registrar, "machineId", 1234);
-        ReflectionTestUtils.setField(registrar, "isBackup", false);
-        ReflectionTestUtils.setField(registrar, "serviceName", "test-service");
+        ReflectionTestUtils.setField(generatorMachineId, "registered", true);
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 1234);
+        ReflectionTestUtils.setField(generatorMachineId, "isBackup", false);
+        ReflectionTestUtils.setField(generatorMachineId, "serviceName", "test-service");
 
         when(redissonClient.getBucket(anyString())).thenReturn(bucket);
         when(bucket.get()).thenReturn("invalid json");
 
-        registrar.destroy();
+        generatorMachineId.destroy();
 
         verify(bucket, never()).set(any());
     }
 
     @Test
-    @DisplayName("测试MachineIdInfo无参构造函数")
-    void testMachineIdInfoNoArgsConstructor() {
-        MachineIdInfo info = new MachineIdInfo();
+    @DisplayName("测试MachineInfoDto无参构造函数")
+    void testMachineInfoDtoNoArgsConstructor() {
+        RedisMachineInfoDto.MachineInfoDto info = new RedisMachineInfoDto.MachineInfoDto();
+        assertNull(info.getMachineId());
         assertNull(info.getMachineName());
         assertNull(info.getMachineIp());
         assertNull(info.getRegisterTime());
@@ -242,18 +246,20 @@ class MachineIdRegistrarTest {
     }
 
     @Test
-    @DisplayName("测试MachineIdInfo全参构造函数")
-    void testMachineIdInfoAllArgsConstructor() {
+    @DisplayName("测试MachineInfoDto全参构造函数")
+    void testMachineInfoDtoAllArgsConstructor() {
         LocalDateTime registerTime = LocalDateTime.now();
         LocalDateTime destroyTime = LocalDateTime.now().plusHours(1);
 
-        MachineIdInfo info = new MachineIdInfo(
+        RedisMachineInfoDto.MachineInfoDto info = new RedisMachineInfoDto.MachineInfoDto(
+                "0001",
                 "test-host",
                 "192.168.1.100",
                 registerTime,
                 destroyTime
         );
 
+        assertEquals("0001", info.getMachineId());
         assertEquals("test-host", info.getMachineName());
         assertEquals("192.168.1.100", info.getMachineIp());
         assertEquals(registerTime, info.getRegisterTime());
@@ -261,27 +267,44 @@ class MachineIdRegistrarTest {
     }
 
     @Test
-    @DisplayName("测试MachineIdInfo Setter方法")
-    void testMachineIdInfoSetters() {
-        MachineIdInfo info = new MachineIdInfo();
+    @DisplayName("测试MachineInfoDto Setter方法")
+    void testMachineInfoDtoSetters() {
+        RedisMachineInfoDto.MachineInfoDto info = new RedisMachineInfoDto.MachineInfoDto();
         info.setMachineName("new-host");
         info.setMachineIp("10.0.0.1");
+        info.setMachineId("0099");
 
+        assertEquals("0099", info.getMachineId());
         assertEquals("new-host", info.getMachineName());
         assertEquals("10.0.0.1", info.getMachineIp());
     }
 
     @Test
-    @DisplayName("测试MachineIdInfo toString方法")
-    void testMachineIdInfoToString() {
-        MachineIdInfo info = MachineIdInfo.builder()
+    @DisplayName("测试MachineInfoDto toString方法")
+    void testMachineInfoDtoToString() {
+        RedisMachineInfoDto.MachineInfoDto info = RedisMachineInfoDto.MachineInfoDto.builder()
+                .machineId("0001")
                 .machineName("test-host")
                 .machineIp("192.168.1.100")
                 .build();
 
         String toString = info.toString();
+        assertTrue(toString.contains("0001"));
         assertTrue(toString.contains("test-host"));
         assertTrue(toString.contains("192.168.1.100"));
+    }
+
+    @Test
+    @DisplayName("测试RedisMachineInfoDto构造函数")
+    void testRedisMachineInfoDtoConstructor() {
+        RedisMachineInfoDto.MachineInfoDto value = RedisMachineInfoDto.MachineInfoDto.builder()
+                .machineId("0001")
+                .build();
+
+        RedisMachineInfoDto dto = new RedisMachineInfoDto("test-key", value);
+
+        assertEquals("test-key", dto.getRedisKey());
+        assertEquals("0001", dto.getRedisValue().getMachineId());
     }
 
     @Test
@@ -311,7 +334,7 @@ class MachineIdRegistrarTest {
         String hostNameFromEnv = System.getenv("HOSTNAME");
         String hostNameFromProp = System.getProperty("host.name");
 
-        String expected = hostNameFromEnv != null ? hostNameFromEnv : 
+        String expected = hostNameFromEnv != null ? hostNameFromEnv :
                           (hostNameFromProp != null ? hostNameFromProp : "unknown");
 
         assertTrue(expected != null && !expected.isEmpty());
@@ -326,17 +349,19 @@ class MachineIdRegistrarTest {
     }
 
     @Test
-    @DisplayName("测试MachineIdInfo Builder模式")
-    void testMachineIdInfoBuilder() {
+    @DisplayName("测试MachineInfoDto Builder模式")
+    void testMachineInfoDtoBuilder() {
         LocalDateTime now = LocalDateTime.now();
-        
-        MachineIdInfo info = MachineIdInfo.builder()
+
+        RedisMachineInfoDto.MachineInfoDto info = RedisMachineInfoDto.MachineInfoDto.builder()
+                .machineId("0005")
                 .machineName("builder-host")
                 .machineIp("10.10.10.10")
                 .registerTime(now)
                 .destroyTime(null)
                 .build();
 
+        assertEquals("0005", info.getMachineId());
         assertEquals("builder-host", info.getMachineName());
         assertEquals("10.10.10.10", info.getMachineIp());
         assertEquals(now, info.getRegisterTime());
@@ -346,11 +371,32 @@ class MachineIdRegistrarTest {
     @Test
     @DisplayName("测试不同端口号的机器码范围计算")
     void testPortModuloCalculation() {
-        int portModulo = 9000;
-        int portMultiplier = 10;
-        
+        int portModulo = GeneratorMachineId.PORT_MODULO;
+        int portMultiplier = GeneratorMachineId.PORT_MULTIPLIER;
+
         assertEquals(0, (9000 % portModulo) * portMultiplier);
         assertEquals(50, (9005 % portModulo) * portMultiplier);
         assertEquals(80800, (8080 % portModulo) * portMultiplier);
+    }
+
+    @Test
+    @DisplayName("测试机器码字符串格式化")
+    void testMachineIdStringFormat() {
+        assertEquals("0000", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 0));
+        assertEquals("0001", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 1));
+        assertEquals("0010", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 10));
+        assertEquals("0100", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 100));
+        assertEquals("1000", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 1000));
+        assertEquals("9999", String.format(GeneratorMachineId.MACHINE_ID_FORMAT, 9999));
+    }
+
+    @Test
+    @DisplayName("测试getMachineIdString方法")
+    void testGetMachineIdString() {
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 123);
+        assertEquals("0123", generatorMachineId.getMachineIdString());
+
+        ReflectionTestUtils.setField(generatorMachineId, "machineId", 9999);
+        assertEquals("9999", generatorMachineId.getMachineIdString());
     }
 }
